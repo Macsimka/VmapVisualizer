@@ -25,9 +25,6 @@ const mouse = new THREE.Vector2()
 // Camera rotation state (yaw = horizontal, pitch = vertical)
 let cameraYaw = Math.PI / 4 // Initial direction
 let cameraPitch = -Math.PI / 6 // Looking slightly down
-let isMouseDown = false
-let lastMouseX = 0
-let lastMouseY = 0
 const mouseSensitivity = 0.005
 
 // Map mesh to spawn info for click inspection
@@ -98,10 +95,12 @@ function createMeshFromModel(loadedModel: LoadedModel): THREE.Object3D | null {
     geometry.computeVertexNormals()
 
     const material = new THREE.MeshPhongMaterial({
-      color: model.isM2 ? 0x44aa88 : 0x8888ff,
+      color: model.isM2 ? 0x66ddaa : 0xccccdd,
       side: THREE.DoubleSide,
       flatShading: true,
       wireframe: props.showWireframe,
+      shininess: 50,
+      specular: 0x555555,
     })
 
     const mesh = new THREE.Mesh(geometry, material)
@@ -311,13 +310,28 @@ function initScene() {
   renderer.setPixelRatio(window.devicePixelRatio)
   containerRef.value.appendChild(renderer.domElement)
 
-  // Lights
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
-  scene.add(ambientLight)
+  // Lights - multiple sources for better depth perception
+  // Hemisphere light for sky/ground ambient (gives different color from above vs below)
+  const hemiLight = new THREE.HemisphereLight(0x8888ff, 0x444422, 0.4)
+  scene.add(hemiLight)
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-  directionalLight.position.set(1000, 1000, 1000)
-  scene.add(directionalLight)
+  // Main directional light (sun)
+  const mainLight = new THREE.DirectionalLight(0xffffff, 0.7)
+  mainLight.position.set(1000, 1000, 2000)
+  scene.add(mainLight)
+
+  // Fill light from opposite side (softer)
+  const fillLight = new THREE.DirectionalLight(0x8888aa, 0.3)
+  fillLight.position.set(-1000, -1000, 500)
+  scene.add(fillLight)
+
+  // Rim light from behind/below for edge definition
+  const rimLight = new THREE.DirectionalLight(0xffffaa, 0.2)
+  rimLight.position.set(0, 0, -1000)
+  scene.add(rimLight)
+
+  // Add fog for depth perception
+  scene.fog = new THREE.Fog(0x1a1a2e, 100, 5000)
 
   // Grid on XY plane (Z is up)
   const gridSize = 10000
@@ -405,23 +419,25 @@ function updateMovement() {
 
 function onMouseDown(e: MouseEvent) {
   if (e.button === 0 || e.button === 2) { // Left or right mouse button
-    isMouseDown = true
-    lastMouseX = e.clientX
-    lastMouseY = e.clientY
+    // Request pointer lock for smooth camera control
+    containerRef.value?.requestPointerLock()
   }
 }
 
 function onMouseUp() {
-  isMouseDown = false
+  // Release pointer lock
+  if (document.pointerLockElement === containerRef.value) {
+    document.exitPointerLock()
+  }
 }
 
 function onMouseMove(e: MouseEvent) {
-  if (!isMouseDown) return
+  // Only respond to mouse movement when pointer is locked
+  if (document.pointerLockElement !== containerRef.value) return
 
-  const deltaX = e.clientX - lastMouseX
-  const deltaY = e.clientY - lastMouseY
-  lastMouseX = e.clientX
-  lastMouseY = e.clientY
+  // Use movementX/Y for pointer lock (relative movement)
+  const deltaX = e.movementX
+  const deltaY = e.movementY
 
   // Update camera angles
   cameraYaw -= deltaX * mouseSensitivity
