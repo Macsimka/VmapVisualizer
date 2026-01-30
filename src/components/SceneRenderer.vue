@@ -17,6 +17,8 @@ let camera: THREE.PerspectiveCamera
 let renderer: THREE.WebGLRenderer
 let controls: OrbitControls
 let animationId: number
+let gridHelper: THREE.GridHelper
+let axesHelper: THREE.AxesHelper
 const meshGroup = new THREE.Group()
 
 // Keyboard movement state
@@ -149,22 +151,32 @@ function updateScene() {
     }
   }
 
-  // Center camera on content
+  // Center camera and grid on content
   if (meshGroup.children.length > 0) {
     const box = new THREE.Box3().setFromObject(meshGroup)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const maxDim = Math.max(size.x, size.y, size.z)
 
+    // Move grid and axes to model center
+    if (gridHelper) {
+      gridHelper.position.set(center.x, center.y, box.min.z)
+    }
+    if (axesHelper) {
+      axesHelper.position.set(center.x, center.y, box.min.z)
+    }
+
     camera.position.set(
-      center.x + maxDim,
-      center.y + maxDim,
-      center.z + maxDim
+      center.x + maxDim * 0.7,
+      center.y - maxDim * 0.7,
+      center.z + maxDim * 0.5
     )
     controls.target.copy(center)
     controls.update()
   }
 }
+
+const cameraPosition = ref({ x: 0, y: 0, z: 0 })
 
 const stats = computed(() => {
   let triangles = 0
@@ -204,7 +216,7 @@ function resetCamera() {
   }
 }
 
-defineExpose({ stats, resetCamera })
+defineExpose({ stats, resetCamera, cameraPosition })
 
 watch(
   () => [props.models, props.showPathOnly, props.showM2, props.showBoundsOnly],
@@ -250,12 +262,12 @@ function initScene() {
   // Grid on XY plane (Z is up)
   const gridSize = 10000
   const gridDivisions = 100
-  const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222)
+  gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222)
   gridHelper.rotation.x = -Math.PI / 2 // Rotate to XY plane
   scene.add(gridHelper)
 
   // Axes
-  const axesHelper = new THREE.AxesHelper(500)
+  axesHelper = new THREE.AxesHelper(500)
   scene.add(axesHelper)
 
   // Add mesh group
@@ -267,6 +279,15 @@ function initScene() {
 
     // Handle keyboard movement
     updateMovement()
+
+    // Update camera position for display
+    if (camera) {
+      cameraPosition.value = {
+        x: Math.round(camera.position.x * 100) / 100,
+        y: Math.round(camera.position.y * 100) / 100,
+        z: Math.round(camera.position.z * 100) / 100,
+      }
+    }
 
     controls.update()
     renderer.render(scene, camera)
@@ -335,13 +356,10 @@ function onKeyDown(e: KeyboardEvent) {
     case 'ArrowRight':
       keys.right = true
       break
-    case 'KeyQ':
     case 'Space':
       keys.up = true
       break
-    case 'KeyE':
-    case 'ShiftLeft':
-    case 'ShiftRight':
+    case 'KeyX':
       keys.down = true
       break
   }
@@ -365,13 +383,10 @@ function onKeyUp(e: KeyboardEvent) {
     case 'ArrowRight':
       keys.right = false
       break
-    case 'KeyQ':
     case 'Space':
       keys.up = false
       break
-    case 'KeyE':
-    case 'ShiftLeft':
-    case 'ShiftRight':
+    case 'KeyX':
       keys.down = false
       break
   }

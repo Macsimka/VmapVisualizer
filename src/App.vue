@@ -290,6 +290,12 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           <button class="reset-btn" @click="sceneRef?.resetCamera()">
             Reset Camera
           </button>
+
+          <div class="coords" v-if="sceneRef?.cameraPosition">
+            <span>X: {{ sceneRef.cameraPosition.x.toFixed(1) }}</span>
+            <span>Y: {{ sceneRef.cameraPosition.y.toFixed(1) }}</span>
+            <span>Z: {{ sceneRef.cameraPosition.z.toFixed(1) }}</span>
+          </div>
         </section>
 
         <section class="panel">
@@ -478,6 +484,19 @@ body {
 
 .reset-btn:hover {
   background: #4a4a6a;
+}
+
+.coords {
+  margin-top: 12px;
+  padding: 8px;
+  background: #0f0f1a;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #8f8;
 }
 
 .checkbox-label {
