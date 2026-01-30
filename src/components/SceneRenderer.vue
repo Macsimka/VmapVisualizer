@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LoadedModel, Vec3 } from '../types/vmap'
 
 const props = defineProps<{
@@ -16,13 +15,20 @@ const containerRef = ref<HTMLDivElement | null>(null)
 let scene: THREE.Scene
 let camera: THREE.PerspectiveCamera
 let renderer: THREE.WebGLRenderer
-let controls: OrbitControls
 let animationId: number
 let gridHelper: THREE.GridHelper
 let axesHelper: THREE.AxesHelper
 const meshGroup = new THREE.Group()
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
+
+// Camera rotation state (yaw = horizontal, pitch = vertical)
+let cameraYaw = Math.PI / 4 // Initial direction
+let cameraPitch = -Math.PI / 6 // Looking slightly down
+let isMouseDown = false
+let lastMouseX = 0
+let lastMouseY = 0
+const mouseSensitivity = 0.005
 
 // Map mesh to spawn info for click inspection
 const meshToSpawn = new Map<THREE.Object3D, { name: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: number }>()
@@ -38,7 +44,7 @@ const keys = {
   up: false,
   down: false,
 }
-const moveSpeed = 1
+const moveSpeed = 0.3
 
 function degToRad(deg: number): number {
   return (deg * Math.PI) / 180
@@ -56,6 +62,19 @@ function createRotationMatrix(rotation: Vec3): THREE.Matrix4 {
   )
   matrix.makeRotationFromEuler(euler)
   return matrix
+}
+
+function updateCameraDirection() {
+  // Calculate look direction from yaw and pitch
+  // Yaw rotates around Z (up), Pitch rotates up/down
+  const direction = new THREE.Vector3(
+    Math.cos(cameraPitch) * Math.cos(cameraYaw),
+    Math.cos(cameraPitch) * Math.sin(cameraYaw),
+    Math.sin(cameraPitch)
+  )
+
+  const target = camera.position.clone().add(direction)
+  camera.lookAt(target)
 }
 
 function createMeshFromModel(loadedModel: LoadedModel): THREE.Object3D | null {
@@ -129,7 +148,7 @@ function createBoundingBox(loadedModel: LoadedModel): THREE.Object3D | null {
   return mesh
 }
 
-function updateScene(resetCamera = true) {
+function updateScene(resetCam = true) {
   // Clear existing meshes and spawn map
   meshToSpawn.clear()
   while (meshGroup.children.length > 0) {
@@ -179,7 +198,7 @@ function updateScene(resetCamera = true) {
   }
 
   // Center camera and grid on content
-  if (resetCamera && meshGroup.children.length > 0) {
+  if (resetCam && meshGroup.children.length > 0) {
     const box = new THREE.Box3().setFromObject(meshGroup)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
@@ -194,12 +213,16 @@ function updateScene(resetCamera = true) {
     }
 
     camera.position.set(
-      center.x + maxDim * 0.7,
+      center.x - maxDim * 0.7,
       center.y - maxDim * 0.7,
       center.z + maxDim * 0.5
     )
-    controls.target.copy(center)
-    controls.update()
+
+    // Point camera towards center
+    const dir = center.clone().sub(camera.position).normalize()
+    cameraYaw = Math.atan2(dir.y, dir.x)
+    cameraPitch = Math.asin(dir.z)
+    updateCameraDirection()
   }
 }
 
@@ -221,7 +244,7 @@ const stats = computed(() => {
 })
 
 function resetCamera() {
-  if (!camera || !controls || !meshGroup) return
+  if (!camera || !meshGroup) return
 
   if (meshGroup.children.length > 0) {
     const box = new THREE.Box3().setFromObject(meshGroup)
@@ -230,16 +253,21 @@ function resetCamera() {
     const maxDim = Math.max(size.x, size.y, size.z)
 
     camera.position.set(
-      center.x + maxDim * 0.7,
+      center.x - maxDim * 0.7,
       center.y - maxDim * 0.7,
       center.z + maxDim * 0.5
     )
-    controls.target.copy(center)
-    controls.update()
+
+    // Point camera towards center
+    const dir = center.clone().sub(camera.position).normalize()
+    cameraYaw = Math.atan2(dir.y, dir.x)
+    cameraPitch = Math.asin(dir.z)
+    updateCameraDirection()
   } else {
     camera.position.set(500, -500, 500)
-    controls.target.set(0, 0, 0)
-    controls.update()
+    cameraYaw = Math.PI / 4
+    cameraPitch = -Math.PI / 6
+    updateCameraDirection()
   }
 }
 
@@ -275,17 +303,13 @@ function initScene() {
   camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100000)
   camera.up.set(0, 0, 1) // Z is up
   camera.position.set(500, -500, 500)
+  updateCameraDirection()
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setSize(width, height)
   renderer.setPixelRatio(window.devicePixelRatio)
   containerRef.value.appendChild(renderer.domElement)
-
-  // Controls
-  controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.05
 
   // Lights
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
@@ -325,54 +349,102 @@ function initScene() {
       }
     }
 
-    controls.update()
     renderer.render(scene, camera)
   }
   animate()
 
-  // Handle resize, keyboard and click
+  // Handle resize, keyboard and mouse
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  containerRef.value.addEventListener('mousedown', onMouseDown)
+  containerRef.value.addEventListener('mouseup', onMouseUp)
+  containerRef.value.addEventListener('mousemove', onMouseMove)
+  containerRef.value.addEventListener('mouseleave', onMouseUp)
   containerRef.value.addEventListener('click', onClick)
+  containerRef.value.addEventListener('wheel', onWheel)
 }
 
 function updateMovement() {
-  if (!camera || !controls) return
+  if (!camera) return
 
-  const direction = new THREE.Vector3()
-  camera.getWorldDirection(direction)
+  // Get forward direction on XY plane (horizontal movement)
+  const forward = new THREE.Vector3(
+    Math.cos(cameraYaw),
+    Math.sin(cameraYaw),
+    0
+  )
 
-  // Get right vector (perpendicular to direction on XY plane)
-  const right = new THREE.Vector3(-direction.y, direction.x, 0).normalize()
-
-  // Forward/backward (in camera direction on XY plane)
-  const forward = new THREE.Vector3(direction.x, direction.y, 0).normalize()
+  // Get right vector (perpendicular to forward on XY plane)
+  // cameraYaw - PI/2 points to the right of camera direction
+  const right = new THREE.Vector3(
+    Math.cos(cameraYaw - Math.PI / 2),
+    Math.sin(cameraYaw - Math.PI / 2),
+    0
+  )
 
   if (keys.forward) {
     camera.position.addScaledVector(forward, moveSpeed)
-    controls.target.addScaledVector(forward, moveSpeed)
   }
   if (keys.backward) {
     camera.position.addScaledVector(forward, -moveSpeed)
-    controls.target.addScaledVector(forward, -moveSpeed)
   }
   if (keys.left) {
-    camera.position.addScaledVector(right, moveSpeed)
-    controls.target.addScaledVector(right, moveSpeed)
+    camera.position.addScaledVector(right, -moveSpeed)
   }
   if (keys.right) {
-    camera.position.addScaledVector(right, -moveSpeed)
-    controls.target.addScaledVector(right, -moveSpeed)
+    camera.position.addScaledVector(right, moveSpeed)
   }
   if (keys.up) {
     camera.position.z += moveSpeed
-    controls.target.z += moveSpeed
   }
   if (keys.down) {
     camera.position.z -= moveSpeed
-    controls.target.z -= moveSpeed
   }
+}
+
+function onMouseDown(e: MouseEvent) {
+  if (e.button === 0 || e.button === 2) { // Left or right mouse button
+    isMouseDown = true
+    lastMouseX = e.clientX
+    lastMouseY = e.clientY
+  }
+}
+
+function onMouseUp() {
+  isMouseDown = false
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!isMouseDown) return
+
+  const deltaX = e.clientX - lastMouseX
+  const deltaY = e.clientY - lastMouseY
+  lastMouseX = e.clientX
+  lastMouseY = e.clientY
+
+  // Update camera angles
+  cameraYaw -= deltaX * mouseSensitivity
+  cameraPitch -= deltaY * mouseSensitivity
+
+  // Clamp pitch to avoid flipping
+  cameraPitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, cameraPitch))
+
+  updateCameraDirection()
+}
+
+function onWheel(e: WheelEvent) {
+  e.preventDefault()
+
+  // Move camera forward/backward based on scroll
+  const forward = new THREE.Vector3(
+    Math.cos(cameraPitch) * Math.cos(cameraYaw),
+    Math.cos(cameraPitch) * Math.sin(cameraYaw),
+    Math.sin(cameraPitch)
+  )
+
+  const scrollSpeed = moveSpeed * 5
+  camera.position.addScaledVector(forward, -e.deltaY * 0.01 * scrollSpeed)
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -475,7 +547,14 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
-  containerRef.value?.removeEventListener('click', onClick)
+  if (containerRef.value) {
+    containerRef.value.removeEventListener('mousedown', onMouseDown)
+    containerRef.value.removeEventListener('mouseup', onMouseUp)
+    containerRef.value.removeEventListener('mousemove', onMouseMove)
+    containerRef.value.removeEventListener('mouseleave', onMouseUp)
+    containerRef.value.removeEventListener('click', onClick)
+    containerRef.value.removeEventListener('wheel', onWheel)
+  }
   renderer?.dispose()
 })
 </script>
