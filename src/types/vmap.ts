@@ -77,3 +77,56 @@ export interface DiagnosticInfo {
   totalVertices: number
   parseErrors: string[]
 }
+
+// Map file constants
+export const MAP_MAGIC = 'MAPS'
+export const MAP_VERSION_MAGIC = 10
+export const MAP_HEIGHT_MAGIC = 'MHGT'
+export const MAP_AREA_MAGIC = 'AREA'
+export const MAP_LIQUID_MAGIC = 'MLIQ'
+
+// Map height header flags
+export const MAP_HEIGHT_NO_HEIGHT = 0x0001
+export const MAP_HEIGHT_AS_INT16 = 0x0002
+export const MAP_HEIGHT_AS_INT8 = 0x0004
+export const MAP_HEIGHT_HAS_FLIGHT_BOUNDS = 0x0008
+
+// Grid constants
+export const MAP_RESOLUTION = 128
+export const SIZE_OF_GRIDS = 533.33333
+
+export interface MapFileHeader {
+  mapMagic: string
+  versionMagic: number
+  buildMagic: number
+  areaMapOffset: number
+  areaMapSize: number
+  heightMapOffset: number
+  heightMapSize: number
+  liquidMapOffset: number
+  liquidMapSize: number
+  holesOffset: number
+  holesSize: number
+}
+
+export interface MapHeightHeader {
+  heightMagic: string
+  flags: number
+  gridHeight: number
+  gridMaxHeight: number
+}
+
+export interface TerrainData {
+  header: MapFileHeader
+  heightHeader?: MapHeightHeader
+  // V9 = vertices at corners (129x129)
+  // V8 = vertices at cell centers (128x128)
+  v9?: Float32Array
+  v8?: Float32Array
+  gridHeight: number
+  gridMaxHeight: number
+  // Holes bitmap: 16*16*8 bytes
+  holes?: Uint8Array
+  hasHeightData: boolean
+  hasHoles: boolean
+}

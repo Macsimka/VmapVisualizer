@@ -1,27 +1,34 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import SceneRenderer from './components/SceneRenderer.vue'
-import { parseVmTile, parseVmTileIdx, parseVmo } from './parsers'
+import { parseVmTile, parseVmTileIdx, parseVmo, parseMapFile } from './parsers'
 import type {
   VmTile,
   VmTileIdx,
   WorldModel,
   LoadedModel,
   DiagnosticInfo,
+  TerrainData,
 } from './types/vmap'
 
 const vmtileFile = ref<File | null>(null)
 const vmtileidxFile = ref<File | null>(null)
+const mapFile = ref<File | null>(null)
 const vmoFiles = ref<Map<string, File>>(new Map())
 
 const vmtile = ref<VmTile | null>(null)
 const vmtileidx = ref<VmTileIdx | null>(null)
 const loadedModels = ref<LoadedModel[]>([])
+const terrainData = ref<TerrainData | null>(null)
+const terrainGridX = ref(32)
+const terrainGridY = ref(32)
 
 const showPathOnly = ref(true)
 const showM2 = ref(true)
 const showBoundsOnly = ref(false)
 const showWireframe = ref(false)
+const showTerrain = ref(true)
+const showVmaps = ref(true)
 
 const parseErrors = ref<string[]>([])
 const isLoading = ref(false)
@@ -56,6 +63,13 @@ function onVmtileidxSelect(event: Event) {
   }
 }
 
+function onMapFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (input.files && input.files[0]) {
+    mapFile.value = input.files[0]
+  }
+}
+
 function onVmoFolderSelect(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files) return
@@ -70,6 +84,14 @@ function onVmoFolderSelect(event: Event) {
 
   for (const file of allFiles) {
     if (file.name.endsWith('.vmo')) {
+      // Only include files directly in the selected folder, not in subfolders
+      const relativePath = file.webkitRelativePath || file.name
+      const pathParts = relativePath.split('/')
+      // pathParts[0] is the folder name, pathParts[1] should be the file if it's in root
+      if (pathParts.length > 2) {
+        continue // Skip files in subfolders
+      }
+
       // Store by filename as-is (lowercase)
       // e.g. "Pa_House02.wmo.vmo" -> "pa_house02.wmo.vmo"
       const filename = file.name.toLowerCase()
@@ -101,16 +123,66 @@ function findVmoFile(modelName: string): File | undefined {
 }
 
 async function loadAndParse() {
-  if (!vmtileFile.value) {
-    parseErrors.value = ['Please select a .vmtile file']
+  if (!vmtileFile.value && !mapFile.value) {
+    parseErrors.value = ['Please select a .vmtile or .map file']
     return
   }
 
   isLoading.value = true
   parseErrors.value = []
   loadedModels.value = []
+  terrainData.value = null
 
   try {
+    // Parse map file if provided (for terrain/holes)
+    if (mapFile.value) {
+      const mapBuffer = await readFileAsArrayBuffer(mapFile.value)
+      const mapResult = parseMapFile(mapBuffer)
+
+      if (!mapResult.success || !mapResult.data) {
+        parseErrors.value.push(`map: ${mapResult.error}`)
+      } else {
+        terrainData.value = mapResult.data
+
+        // Try to extract grid coordinates from filename
+        // Format 1: mapId_gridX_gridY.map (e.g., 0960_30_36.map)
+        // Format 2: gridX_gridY.map (e.g., 0032_0032.map)
+        const filename = mapFile.value.name
+        let match = filename.match(/^\d+_(\d+)_(\d+)\.map$/i)
+        if (match) {
+          // Format: mapId_gridX_gridY.map
+          terrainGridX.value = parseInt(match[1], 10)
+          terrainGridY.value = parseInt(match[2], 10)
+          console.log(`Grid coords from filename (mapId_X_Y format): (${terrainGridX.value}, ${terrainGridY.value})`)
+        } else {
+          match = filename.match(/^(\d{4})_(\d{4})\.map$/i)
+          if (match) {
+            // Format: XXXX_YYYY.map
+            terrainGridX.value = parseInt(match[1], 10)
+            terrainGridY.value = parseInt(match[2], 10)
+            console.log(`Grid coords from filename (XXXX_YYYY format): (${terrainGridX.value}, ${terrainGridY.value})`)
+          } else {
+            // Default to center grid
+            terrainGridX.value = 32
+            terrainGridY.value = 32
+            console.log('Could not parse grid coords from filename, using default (32, 32)')
+          }
+        }
+
+        console.log('Terrain loaded:', {
+          hasHeightData: mapResult.data.hasHeightData,
+          hasHoles: mapResult.data.hasHoles,
+          gridHeight: mapResult.data.gridHeight,
+          gridMaxHeight: mapResult.data.gridMaxHeight,
+        })
+      }
+    }
+
+    // If no vmtile file, we're done (terrain only mode)
+    if (!vmtileFile.value) {
+      isLoading.value = false
+      return
+    }
     // Parse vmtile
     const vmtileBuffer = await readFileAsArrayBuffer(vmtileFile.value)
     const vmtileResult = parseVmTile(vmtileBuffer)
@@ -265,6 +337,14 @@ const diagnostics = computed<DiagnosticInfo>(() => {
             <span class="file-name">{{ vmoFiles.size }} .vmo files loaded</span>
           </div>
 
+          <div class="form-group">
+            <label>
+              .map file (terrain with holes)
+              <input type="file" accept=".map" @change="onMapFileSelect" />
+            </label>
+            <span v-if="mapFile" class="file-name">{{ mapFile.name }}</span>
+          </div>
+
           <button class="load-btn" @click="loadAndParse" :disabled="isLoading">
             {{ isLoading ? 'Loading...' : 'Load & Render' }}
           </button>
@@ -291,6 +371,16 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           <label class="checkbox-label">
             <input type="checkbox" v-model="showWireframe" />
             Wireframe mode
+          </label>
+
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="showVmaps" />
+            Show VMAPs
+          </label>
+
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="showTerrain" />
+            Show Terrain (holes in red)
           </label>
 
           <button class="reset-btn" @click="sceneRef?.resetCamera()">
@@ -376,10 +466,15 @@ const diagnostics = computed<DiagnosticInfo>(() => {
         <SceneRenderer
           ref="sceneRef"
           :models="loadedModels"
+          :terrain="terrainData"
+          :terrain-grid-x="terrainGridX"
+          :terrain-grid-y="terrainGridY"
           :show-path-only="showPathOnly"
           :show-m2="showM2"
           :show-bounds-only="showBoundsOnly"
           :show-wireframe="showWireframe"
+          :show-terrain="showTerrain"
+          :show-vmaps="showVmaps"
         />
       </main>
     </div>
