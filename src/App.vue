@@ -286,6 +286,10 @@ const diagnostics = computed<DiagnosticInfo>(() => {
             <input type="checkbox" v-model="showBoundsOnly" />
             Show bounds only (AABB)
           </label>
+
+          <button class="reset-btn" @click="sceneRef?.resetCamera()">
+            Reset Camera
+          </button>
         </section>
 
         <section class="panel">
@@ -457,6 +461,23 @@ body {
 .load-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.reset-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 12px;
+  background: #3a3a5a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.reset-btn:hover {
+  background: #4a4a6a;
 }
 
 .checkbox-label {

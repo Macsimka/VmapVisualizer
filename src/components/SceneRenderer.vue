@@ -19,6 +19,17 @@ let controls: OrbitControls
 let animationId: number
 const meshGroup = new THREE.Group()
 
+// Keyboard movement state
+const keys = {
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+}
+const moveSpeed = 5
+
 function degToRad(deg: number): number {
   return (deg * Math.PI) / 180
 }
@@ -170,7 +181,30 @@ const stats = computed(() => {
   return { triangles, vertices }
 })
 
-defineExpose({ stats })
+function resetCamera() {
+  if (!camera || !controls || !meshGroup) return
+
+  if (meshGroup.children.length > 0) {
+    const box = new THREE.Box3().setFromObject(meshGroup)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z)
+
+    camera.position.set(
+      center.x + maxDim * 0.7,
+      center.y - maxDim * 0.7,
+      center.z + maxDim * 0.5
+    )
+    controls.target.copy(center)
+    controls.update()
+  } else {
+    camera.position.set(500, -500, 500)
+    controls.target.set(0, 0, 0)
+    controls.update()
+  }
+}
+
+defineExpose({ stats, resetCamera })
 
 watch(
   () => [props.models, props.showPathOnly, props.showM2, props.showBoundsOnly],
@@ -187,11 +221,12 @@ function initScene() {
   scene = new THREE.Scene()
   scene.background = new THREE.Color(0x1a1a2e)
 
-  // Camera
+  // Camera - Z is up in WoW/TrinityCore
   const width = containerRef.value.clientWidth
   const height = containerRef.value.clientHeight
   camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100000)
-  camera.position.set(500, 500, 500)
+  camera.up.set(0, 0, 1) // Z is up
+  camera.position.set(500, -500, 500)
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -212,11 +247,11 @@ function initScene() {
   directionalLight.position.set(1000, 1000, 1000)
   scene.add(directionalLight)
 
-  // Grid
+  // Grid on XY plane (Z is up)
   const gridSize = 10000
   const gridDivisions = 100
   const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222)
-  gridHelper.rotation.x = Math.PI / 2
+  gridHelper.rotation.x = -Math.PI / 2 // Rotate to XY plane
   scene.add(gridHelper)
 
   // Axes
@@ -229,13 +264,117 @@ function initScene() {
   // Animation loop
   function animate() {
     animationId = requestAnimationFrame(animate)
+
+    // Handle keyboard movement
+    updateMovement()
+
     controls.update()
     renderer.render(scene, camera)
   }
   animate()
 
-  // Handle resize
+  // Handle resize and keyboard
   window.addEventListener('resize', onResize)
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+}
+
+function updateMovement() {
+  if (!camera || !controls) return
+
+  const direction = new THREE.Vector3()
+  camera.getWorldDirection(direction)
+
+  // Get right vector (perpendicular to direction on XY plane)
+  const right = new THREE.Vector3(-direction.y, direction.x, 0).normalize()
+
+  // Forward/backward (in camera direction on XY plane)
+  const forward = new THREE.Vector3(direction.x, direction.y, 0).normalize()
+
+  if (keys.forward) {
+    camera.position.addScaledVector(forward, moveSpeed)
+    controls.target.addScaledVector(forward, moveSpeed)
+  }
+  if (keys.backward) {
+    camera.position.addScaledVector(forward, -moveSpeed)
+    controls.target.addScaledVector(forward, -moveSpeed)
+  }
+  if (keys.left) {
+    camera.position.addScaledVector(right, moveSpeed)
+    controls.target.addScaledVector(right, moveSpeed)
+  }
+  if (keys.right) {
+    camera.position.addScaledVector(right, -moveSpeed)
+    controls.target.addScaledVector(right, -moveSpeed)
+  }
+  if (keys.up) {
+    camera.position.z += moveSpeed
+    controls.target.z += moveSpeed
+  }
+  if (keys.down) {
+    camera.position.z -= moveSpeed
+    controls.target.z -= moveSpeed
+  }
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  switch (e.code) {
+    case 'KeyW':
+    case 'ArrowUp':
+      keys.forward = true
+      break
+    case 'KeyS':
+    case 'ArrowDown':
+      keys.backward = true
+      break
+    case 'KeyA':
+    case 'ArrowLeft':
+      keys.left = true
+      break
+    case 'KeyD':
+    case 'ArrowRight':
+      keys.right = true
+      break
+    case 'KeyQ':
+    case 'Space':
+      keys.up = true
+      break
+    case 'KeyE':
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      keys.down = true
+      break
+  }
+}
+
+function onKeyUp(e: KeyboardEvent) {
+  switch (e.code) {
+    case 'KeyW':
+    case 'ArrowUp':
+      keys.forward = false
+      break
+    case 'KeyS':
+    case 'ArrowDown':
+      keys.backward = false
+      break
+    case 'KeyA':
+    case 'ArrowLeft':
+      keys.left = false
+      break
+    case 'KeyD':
+    case 'ArrowRight':
+      keys.right = false
+      break
+    case 'KeyQ':
+    case 'Space':
+      keys.up = false
+      break
+    case 'KeyE':
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      keys.down = false
+      break
+  }
 }
 
 function onResize() {
@@ -255,6 +394,8 @@ onMounted(() => {
 onUnmounted(() => {
   cancelAnimationFrame(animationId)
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
   renderer?.dispose()
 })
 </script>
