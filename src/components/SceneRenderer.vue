@@ -9,6 +9,7 @@ const props = defineProps<{
   showPathOnly: boolean
   showM2: boolean
   showBoundsOnly: boolean
+  showWireframe: boolean
 }>()
 
 const containerRef = ref<HTMLDivElement | null>(null)
@@ -20,6 +21,13 @@ let animationId: number
 let gridHelper: THREE.GridHelper
 let axesHelper: THREE.AxesHelper
 const meshGroup = new THREE.Group()
+const raycaster = new THREE.Raycaster()
+const mouse = new THREE.Vector2()
+
+// Map mesh to spawn info for click inspection
+const meshToSpawn = new Map<THREE.Object3D, { name: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: number }>()
+
+const selectedSpawn = ref<{ name: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; scale: number } | null>(null)
 
 // Keyboard movement state
 const keys = {
@@ -30,19 +38,20 @@ const keys = {
   up: false,
   down: false,
 }
-const moveSpeed = 5
+const moveSpeed = 1
 
 function degToRad(deg: number): number {
   return (deg * Math.PI) / 180
 }
 
 function createRotationMatrix(rotation: Vec3): THREE.Matrix4 {
-  // ZYX order as per TrinityCore
+  // TrinityCore uses fromEulerAnglesZYX(iRot.y, iRot.x, iRot.z)
+  // which means: Z rotation = iRot.y, Y rotation = iRot.x, X rotation = iRot.z
   const matrix = new THREE.Matrix4()
   const euler = new THREE.Euler(
-    degToRad(rotation.x),
-    degToRad(rotation.y),
-    degToRad(rotation.z),
+    degToRad(rotation.z),  // X angle from iRot.z
+    degToRad(rotation.x),  // Y angle from iRot.x
+    degToRad(rotation.y),  // Z angle from iRot.y
     'ZYX'
   )
   matrix.makeRotationFromEuler(euler)
@@ -73,6 +82,7 @@ function createMeshFromModel(loadedModel: LoadedModel): THREE.Object3D | null {
       color: model.isM2 ? 0x44aa88 : 0x8888ff,
       side: THREE.DoubleSide,
       flatShading: true,
+      wireframe: props.showWireframe,
     })
 
     const mesh = new THREE.Mesh(geometry, material)
@@ -119,8 +129,9 @@ function createBoundingBox(loadedModel: LoadedModel): THREE.Object3D | null {
   return mesh
 }
 
-function updateScene() {
-  // Clear existing meshes
+function updateScene(resetCamera = true) {
+  // Clear existing meshes and spawn map
+  meshToSpawn.clear()
   while (meshGroup.children.length > 0) {
     const child = meshGroup.children[0]
     meshGroup.remove(child)
@@ -144,15 +155,31 @@ function updateScene() {
 
     if (props.showBoundsOnly) {
       const box = createBoundingBox(loadedModel)
-      if (box) meshGroup.add(box)
+      if (box) {
+        meshGroup.add(box)
+        meshToSpawn.set(box, {
+          name: spawn.name,
+          position: { ...spawn.position },
+          rotation: { ...spawn.rotation },
+          scale: spawn.scale,
+        })
+      }
     } else {
       const mesh = createMeshFromModel(loadedModel)
-      if (mesh) meshGroup.add(mesh)
+      if (mesh) {
+        meshGroup.add(mesh)
+        meshToSpawn.set(mesh, {
+          name: spawn.name,
+          position: { ...spawn.position },
+          rotation: { ...spawn.rotation },
+          scale: spawn.scale,
+        })
+      }
     }
   }
 
   // Center camera and grid on content
-  if (meshGroup.children.length > 0) {
+  if (resetCamera && meshGroup.children.length > 0) {
     const box = new THREE.Box3().setFromObject(meshGroup)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
@@ -216,14 +243,23 @@ function resetCamera() {
   }
 }
 
-defineExpose({ stats, resetCamera, cameraPosition })
+defineExpose({ stats, resetCamera, cameraPosition, selectedSpawn })
 
+// Reset camera when models change
 watch(
-  () => [props.models, props.showPathOnly, props.showM2, props.showBoundsOnly],
+  () => props.models,
   () => {
-    updateScene()
+    updateScene(true)
   },
   { deep: true }
+)
+
+// Don't reset camera for display option changes
+watch(
+  () => [props.showPathOnly, props.showM2, props.showBoundsOnly, props.showWireframe],
+  () => {
+    updateScene(false)
+  }
 )
 
 function initScene() {
@@ -294,10 +330,11 @@ function initScene() {
   }
   animate()
 
-  // Handle resize and keyboard
+  // Handle resize, keyboard and click
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  containerRef.value.addEventListener('click', onClick)
 }
 
 function updateMovement() {
@@ -401,6 +438,33 @@ function onResize() {
   renderer.setSize(width, height)
 }
 
+function onClick(event: MouseEvent) {
+  if (!containerRef.value) return
+
+  const rect = containerRef.value.getBoundingClientRect()
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+  raycaster.setFromCamera(mouse, camera)
+  const intersects = raycaster.intersectObjects(meshGroup.children, true)
+
+  if (intersects.length > 0) {
+    // Find the top-level object (group) that was clicked
+    let obj = intersects[0].object
+    while (obj.parent && obj.parent !== meshGroup) {
+      obj = obj.parent
+    }
+
+    const spawnInfo = meshToSpawn.get(obj)
+    if (spawnInfo) {
+      selectedSpawn.value = spawnInfo
+      console.log('Selected spawn:', spawnInfo)
+    }
+  } else {
+    selectedSpawn.value = null
+  }
+}
+
 onMounted(() => {
   initScene()
   updateScene()
@@ -411,6 +475,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  containerRef.value?.removeEventListener('click', onClick)
   renderer?.dispose()
 })
 </script>

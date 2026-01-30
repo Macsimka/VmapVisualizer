@@ -21,6 +21,7 @@ const loadedModels = ref<LoadedModel[]>([])
 const showPathOnly = ref(true)
 const showM2 = ref(true)
 const showBoundsOnly = ref(false)
+const showWireframe = ref(false)
 
 const parseErrors = ref<string[]>([])
 const isLoading = ref(false)
@@ -287,6 +288,11 @@ const diagnostics = computed<DiagnosticInfo>(() => {
             Show bounds only (AABB)
           </label>
 
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="showWireframe" />
+            Wireframe mode
+          </label>
+
           <button class="reset-btn" @click="sceneRef?.resetCamera()">
             Reset Camera
           </button>
@@ -342,6 +348,28 @@ const diagnostics = computed<DiagnosticInfo>(() => {
             </ul>
           </div>
         </section>
+
+        <section class="panel" v-if="sceneRef?.selectedSpawn">
+          <h2>Selected Object</h2>
+          <div class="spawn-info">
+            <div class="info-row">
+              <span>Name:</span>
+              <strong>{{ sceneRef.selectedSpawn.name }}</strong>
+            </div>
+            <div class="info-row">
+              <span>Position:</span>
+              <code>{{ sceneRef.selectedSpawn.position.x.toFixed(2) }}, {{ sceneRef.selectedSpawn.position.y.toFixed(2) }}, {{ sceneRef.selectedSpawn.position.z.toFixed(2) }}</code>
+            </div>
+            <div class="info-row">
+              <span>Rotation:</span>
+              <code>{{ sceneRef.selectedSpawn.rotation.x.toFixed(2) }}, {{ sceneRef.selectedSpawn.rotation.y.toFixed(2) }}, {{ sceneRef.selectedSpawn.rotation.z.toFixed(2) }}</code>
+            </div>
+            <div class="info-row">
+              <span>Scale:</span>
+              <code>{{ sceneRef.selectedSpawn.scale.toFixed(4) }}</code>
+            </div>
+          </div>
+        </section>
       </aside>
 
       <main class="viewport">
@@ -351,6 +379,7 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           :show-path-only="showPathOnly"
           :show-m2="showM2"
           :show-bounds-only="showBoundsOnly"
+          :show-wireframe="showWireframe"
         />
       </main>
     </div>
@@ -568,5 +597,40 @@ body {
 .viewport {
   flex: 1;
   background: #0a0a14;
+}
+
+.spawn-info {
+  font-size: 0.8rem;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 4px 0;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row span {
+  color: #888;
+}
+
+.info-row strong {
+  color: #fff;
+  word-break: break-all;
+  text-align: right;
+  max-width: 180px;
+}
+
+.info-row code {
+  font-family: monospace;
+  color: #8f8;
+  background: #0f0f1a;
+  padding: 2px 6px;
+  border-radius: 3px;
 }
 </style>
