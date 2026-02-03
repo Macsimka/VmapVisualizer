@@ -2,6 +2,8 @@
 
 Browser-based visualizer for TrinityCore VMAP `.vmtile` files. Renders tile geometry using Three.js.
 
+![Example](images/example.png)
+
 ## Features
 
 - Parse and visualize `.vmtile` files
