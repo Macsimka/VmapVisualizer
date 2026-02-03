@@ -1,15 +1,17 @@
 import { BinaryReader } from '../utils/BinaryReader'
-import { VMAP_MAGIC, type VmTileIdx, type ParseResult } from '../types/vmap'
+import { VMAP_MAGIC_VERSIONS, type VmTileIdx, type ParseResult } from '../types/vmap'
 
 export function parseVmTileIdx(buffer: ArrayBuffer): ParseResult<VmTileIdx> {
   try {
     const reader = new BinaryReader(buffer)
 
     const magic = reader.readFixedString(8)
-    if (magic !== VMAP_MAGIC) {
+    if (!VMAP_MAGIC_VERSIONS.includes(magic)) {
       return {
         success: false,
-        error: `Invalid vmtileidx magic: expected "${VMAP_MAGIC}", got "${magic}"`,
+        error: `Invalid vmtileidx magic: expected one of ${VMAP_MAGIC_VERSIONS.map(
+          (value) => `"${value}"`,
+        ).join(', ')}, got "${magic}"`,
       }
     }
 

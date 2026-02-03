@@ -1,7 +1,7 @@
 import { BinaryReader } from '../utils/BinaryReader'
 import {
   MAP_MAGIC,
-  MAP_VERSION_MAGIC,
+  MAP_VERSION_MAGIC_VERSIONS,
   MAP_HEIGHT_MAGIC,
   MAP_HEIGHT_NO_HEIGHT,
   MAP_HEIGHT_AS_INT16,
@@ -26,10 +26,12 @@ export function parseMapFile(buffer: ArrayBuffer): ParseResult<TerrainData> {
     }
 
     const versionMagic = reader.readUint32()
-    if (versionMagic !== MAP_VERSION_MAGIC) {
+    if (!MAP_VERSION_MAGIC_VERSIONS.includes(versionMagic)) {
       return {
         success: false,
-        error: `Invalid map version: expected ${MAP_VERSION_MAGIC}, got ${versionMagic}`,
+        error: `Invalid map version: expected one of ${MAP_VERSION_MAGIC_VERSIONS.join(
+          ', ',
+        )}, got ${versionMagic}`,
       }
     }
 

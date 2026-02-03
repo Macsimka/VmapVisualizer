@@ -1,6 +1,6 @@
 import { BinaryReader } from '../utils/BinaryReader'
 import {
-  VMAP_MAGIC,
+  VMAP_MAGIC_VERSIONS,
   MODEL_FLAG_IS_M2,
   type WorldModel,
   type GroupModel,
@@ -109,10 +109,12 @@ export function parseVmo(buffer: ArrayBuffer): ParseResult<WorldModel> {
 
     // Read magic
     const magic = reader.readFixedString(8)
-    if (magic !== VMAP_MAGIC) {
+    if (!VMAP_MAGIC_VERSIONS.includes(magic)) {
       return {
         success: false,
-        error: `Invalid vmo magic: expected "${VMAP_MAGIC}", got "${magic}"`,
+        error: `Invalid vmo magic: expected one of ${VMAP_MAGIC_VERSIONS.map(
+          (value) => `"${value}"`,
+        ).join(', ')}, got "${magic}"`,
       }
     }
 

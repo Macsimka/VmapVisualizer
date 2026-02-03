@@ -1,6 +1,6 @@
 import { BinaryReader } from '../utils/BinaryReader'
 import {
-  VMAP_MAGIC,
+  VMAP_MAGIC_VERSIONS,
   MOD_HAS_BOUND,
   MOD_PARENT_SPAWN,
   MOD_PATH_ONLY,
@@ -48,10 +48,12 @@ export function parseVmTile(buffer: ArrayBuffer): ParseResult<VmTile> {
     const reader = new BinaryReader(buffer)
 
     const magic = reader.readFixedString(8)
-    if (magic !== VMAP_MAGIC) {
+    if (!VMAP_MAGIC_VERSIONS.includes(magic)) {
       return {
         success: false,
-        error: `Invalid vmtile magic: expected "${VMAP_MAGIC}", got "${magic}"`,
+        error: `Invalid vmtile magic: expected one of ${VMAP_MAGIC_VERSIONS.map(
+          (value) => `"${value}"`,
+        ).join(', ')}, got "${magic}"`,
       }
     }
 
