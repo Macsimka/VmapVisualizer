@@ -5,15 +5,15 @@ import { parseVmTile, parseVmTileIdx, parseVmo, parseMapFile } from './parsers'
 import type {
   VmTile,
   VmTileIdx,
-  WorldModel,
   LoadedModel,
   DiagnosticInfo,
   TerrainData,
 } from './types/vmap'
 
 const vmtileFile = ref<File | null>(null)
-const vmtileidxFile = ref<File | null>(null)
+const vmtileidxFile = ref<File | null>(null) // Auto-loaded based on vmtile name
 const mapFile = ref<File | null>(null)
+const vmtileFolder = ref<Map<string, File>>(new Map()) // Store all vmtile/vmtileidx files from folder
 const vmoFiles = ref<Map<string, File>>(new Map())
 
 const vmtile = ref<VmTile | null>(null)
@@ -51,15 +51,30 @@ function normalizeModelName(name: string): string {
 
 function onVmtileSelect(event: Event) {
   const input = event.target as HTMLInputElement
-  if (input.files && input.files[0]) {
-    vmtileFile.value = input.files[0]
-  }
-}
+  if (!input.files) return
 
-function onVmtileidxSelect(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (input.files && input.files[0]) {
-    vmtileidxFile.value = input.files[0]
+  vmtileFile.value = null
+  vmtileidxFile.value = null
+  vmtileFolder.value.clear()
+
+  // Store all selected files
+  for (const file of Array.from(input.files)) {
+    vmtileFolder.value.set(file.name.toLowerCase(), file)
+  }
+
+  // Find .vmtile file
+  for (const [name, file] of vmtileFolder.value) {
+    if (name.endsWith('.vmtile')) {
+      vmtileFile.value = file
+
+      // Auto-find matching .vmtileidx file
+      const idxName = name.replace('.vmtile', '.vmtileidx')
+      if (vmtileFolder.value.has(idxName)) {
+        vmtileidxFile.value = vmtileFolder.value.get(idxName)!
+        console.log(`Auto-loaded index file: ${idxName}`)
+      }
+      break
+    }
   }
 }
 
@@ -310,17 +325,10 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           <div class="form-group">
             <label>
               .vmtile file
-              <input type="file" accept=".vmtile" @change="onVmtileSelect" />
+              <input type="file" accept=".vmtile" multiple @change="onVmtileSelect" />
             </label>
             <span v-if="vmtileFile" class="file-name">{{ vmtileFile.name }}</span>
-          </div>
-
-          <div class="form-group">
-            <label>
-              .vmtileidx file (optional)
-              <input type="file" accept=".vmtileidx" @change="onVmtileidxSelect" />
-            </label>
-            <span v-if="vmtileidxFile" class="file-name">{{ vmtileidxFile.name }}</span>
+            <span v-if="vmtileidxFile" class="file-name idx-loaded"> + {{ vmtileidxFile.name }}</span>
           </div>
 
           <div class="form-group">
@@ -569,6 +577,12 @@ body {
 .file-name {
   font-size: 0.75rem;
   color: #6a6;
+}
+
+.file-name.idx-loaded {
+  display: block;
+  color: #8af;
+  margin-top: 2px;
 }
 
 .load-btn {

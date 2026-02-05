@@ -47,6 +47,7 @@ const keys = {
   right: false,
   up: false,
   down: false,
+  boost: false,
 }
 const moveSpeed = 0.3
 
@@ -604,10 +605,12 @@ function initScene() {
   containerRef.value.addEventListener('mouseleave', onMouseUp)
   containerRef.value.addEventListener('click', onClick)
   containerRef.value.addEventListener('wheel', onWheel)
+  containerRef.value.addEventListener('contextmenu', onContextMenu)
 }
 
 function updateMovement() {
   if (!camera) return
+  const currentMoveSpeed = keys.boost ? moveSpeed * 5 : moveSpeed
 
   // Get forward direction on XY plane (horizontal movement)
   const forward = new THREE.Vector3(
@@ -625,26 +628,29 @@ function updateMovement() {
   )
 
   if (keys.forward) {
-    camera.position.addScaledVector(forward, moveSpeed)
+    camera.position.addScaledVector(forward, currentMoveSpeed)
   }
   if (keys.backward) {
-    camera.position.addScaledVector(forward, -moveSpeed)
+    camera.position.addScaledVector(forward, -currentMoveSpeed)
   }
   if (keys.left) {
-    camera.position.addScaledVector(right, -moveSpeed)
+    camera.position.addScaledVector(right, -currentMoveSpeed)
   }
   if (keys.right) {
-    camera.position.addScaledVector(right, moveSpeed)
+    camera.position.addScaledVector(right, currentMoveSpeed)
   }
   if (keys.up) {
-    camera.position.z += moveSpeed
+    camera.position.z += currentMoveSpeed
   }
   if (keys.down) {
-    camera.position.z -= moveSpeed
+    camera.position.z -= currentMoveSpeed
   }
 }
 
 function onMouseDown(e: MouseEvent) {
+  if (e.button === 2) {
+    e.preventDefault()
+  }
   if (e.button === 0 || e.button === 2) { // Left or right mouse button
     // Request pointer lock for smooth camera control
     containerRef.value?.requestPointerLock()
@@ -686,12 +692,17 @@ function onWheel(e: WheelEvent) {
     Math.sin(cameraPitch)
   )
 
-  const scrollSpeed = moveSpeed * 5
+  const currentMoveSpeed = keys.boost ? moveSpeed * 5 : moveSpeed
+  const scrollSpeed = currentMoveSpeed * 5
   camera.position.addScaledVector(forward, -e.deltaY * 0.01 * scrollSpeed)
 }
 
 function onKeyDown(e: KeyboardEvent) {
   switch (e.code) {
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      keys.boost = true
+      break
     case 'KeyW':
     case 'ArrowUp':
       keys.forward = true
@@ -719,6 +730,10 @@ function onKeyDown(e: KeyboardEvent) {
 
 function onKeyUp(e: KeyboardEvent) {
   switch (e.code) {
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      keys.boost = false
+      break
     case 'KeyW':
     case 'ArrowUp':
       keys.forward = false
@@ -742,6 +757,10 @@ function onKeyUp(e: KeyboardEvent) {
       keys.down = false
       break
   }
+}
+
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
 }
 
 function onResize() {
@@ -797,6 +816,7 @@ onUnmounted(() => {
     containerRef.value.removeEventListener('mouseleave', onMouseUp)
     containerRef.value.removeEventListener('click', onClick)
     containerRef.value.removeEventListener('wheel', onWheel)
+    containerRef.value.removeEventListener('contextmenu', onContextMenu)
   }
   renderer?.dispose()
 })
