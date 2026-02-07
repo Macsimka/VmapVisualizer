@@ -720,6 +720,7 @@ function onKeyDown(e: KeyboardEvent) {
       keys.right = true
       break
     case 'Space':
+      e.preventDefault()
       keys.up = true
       break
     case 'KeyX':

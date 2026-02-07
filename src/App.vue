@@ -361,32 +361,32 @@ const diagnostics = computed<DiagnosticInfo>(() => {
         <section class="panel">
           <h2>Display Options</h2>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showPathOnly" />
             Show Path-Only models
           </label>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showM2" />
             Show M2 models
           </label>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showBoundsOnly" />
             Show bounds only (AABB)
           </label>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showWireframe" />
             Wireframe mode
           </label>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showVmaps" />
             Show VMAPs
           </label>
 
-          <label class="checkbox-label">
+          <label class="checkbox-label" @mousedown.prevent>
             <input type="checkbox" v-model="showTerrain" />
             Show Terrain (holes in red)
           </label>
