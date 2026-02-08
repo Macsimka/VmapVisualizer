@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import SceneRenderer from './components/SceneRenderer.vue'
 import { parseVmTile, parseVmTileIdx, parseVmo, parseMapFile } from './parsers'
 import type {
@@ -8,7 +8,14 @@ import type {
   LoadedModel,
   DiagnosticInfo,
   TerrainData,
+  WorldModel,
+  ModelSpawn,
+  AABox,
 } from './types/vmap'
+
+type AppMode = 'tile-viewer' | 'model-viewer'
+const appMode = ref<AppMode>('tile-viewer')
+const standaloneVmoFiles = ref<File[]>([])
 
 const vmtileFile = ref<File | null>(null)
 const vmtileidxFile = ref<File | null>(null) // Auto-loaded based on vmtile name
@@ -282,6 +289,136 @@ async function loadAndParse() {
   isLoading.value = false
 }
 
+// --- Model Viewer mode ---
+
+function onStandaloneVmoSelect(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files) return
+  for (const file of Array.from(input.files)) {
+    if (file.name.toLowerCase().endsWith('.vmo')) {
+      standaloneVmoFiles.value.push(file)
+    }
+  }
+}
+
+function removeStandaloneFile(index: number) {
+  standaloneVmoFiles.value.splice(index, 1)
+}
+
+function computeModelBounds(model: WorldModel): AABox {
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+  for (const group of model.groups) {
+    minX = Math.min(minX, group.bound.low.x)
+    minY = Math.min(minY, group.bound.low.y)
+    minZ = Math.min(minZ, group.bound.low.z)
+    maxX = Math.max(maxX, group.bound.high.x)
+    maxY = Math.max(maxY, group.bound.high.y)
+    maxZ = Math.max(maxZ, group.bound.high.z)
+  }
+  return {
+    low: { x: minX, y: minY, z: minZ },
+    high: { x: maxX, y: maxY, z: maxZ },
+  }
+}
+
+function arrangeModelsInGrid(
+  models: { model: WorldModel; fileName: string }[]
+): LoadedModel[] {
+  const PADDING = 10
+  const result: LoadedModel[] = []
+  const cols = Math.ceil(Math.sqrt(models.length))
+
+  const entries = models.map((m) => {
+    const bounds = computeModelBounds(m.model)
+    return {
+      ...m,
+      bounds,
+      sizeX: bounds.high.x - bounds.low.x,
+      sizeY: bounds.high.y - bounds.low.y,
+      centerX: (bounds.low.x + bounds.high.x) / 2,
+      centerY: (bounds.low.y + bounds.high.y) / 2,
+    }
+  })
+
+  let offsetX = 0
+  let offsetY = 0
+  let rowMaxY = 0
+
+  for (let i = 0; i < entries.length; i++) {
+    const col = i % cols
+    if (col === 0 && i > 0) {
+      offsetY += rowMaxY + PADDING
+      offsetX = 0
+      rowMaxY = 0
+    }
+
+    const entry = entries[i]
+    const spawn: ModelSpawn = {
+      flags: 0,
+      adtId: 0,
+      id: i,
+      position: {
+        x: offsetX - entry.centerX,
+        y: offsetY - entry.centerY,
+        z: -entry.bounds.low.z,
+      },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: 1.0,
+      bound: entry.bounds,
+      name: entry.fileName,
+      isPathOnly: false,
+      isParentSpawn: false,
+      hasBound: true,
+    }
+
+    result.push({ spawn, model: entry.model })
+
+    offsetX += entry.sizeX + PADDING
+    rowMaxY = Math.max(rowMaxY, entry.sizeY)
+  }
+
+  return result
+}
+
+async function loadStandaloneModels() {
+  isLoading.value = true
+  parseErrors.value = []
+  loadedModels.value = []
+  terrainData.value = null
+  vmtile.value = null
+
+  const parsed: { model: WorldModel; fileName: string }[] = []
+
+  for (const file of standaloneVmoFiles.value) {
+    try {
+      const buffer = await readFileAsArrayBuffer(file)
+      const result = parseVmo(buffer)
+      if (!result.success || !result.data) {
+        parseErrors.value.push(`${file.name}: ${result.error}`)
+      } else if (result.data.groups.length === 0) {
+        parseErrors.value.push(`${file.name}: no geometry groups`)
+      } else {
+        parsed.push({ model: result.data, fileName: file.name })
+      }
+    } catch (e) {
+      parseErrors.value.push(`${file.name}: ${e}`)
+    }
+  }
+
+  if (parsed.length > 0) {
+    loadedModels.value = arrangeModelsInGrid(parsed)
+  }
+
+  isLoading.value = false
+}
+
+watch(appMode, () => {
+  loadedModels.value = []
+  terrainData.value = null
+  parseErrors.value = []
+})
+
 const diagnostics = computed<DiagnosticInfo>(() => {
   const missingModels = loadedModels.value
     .filter((m) => !m.model)
@@ -319,7 +456,23 @@ const diagnostics = computed<DiagnosticInfo>(() => {
 
     <div class="main-layout">
       <aside class="sidebar">
-        <section class="panel">
+        <div class="mode-tabs">
+          <button
+            :class="['tab', { active: appMode === 'tile-viewer' }]"
+            @click="appMode = 'tile-viewer'"
+          >
+            Tile Viewer
+          </button>
+          <button
+            :class="['tab', { active: appMode === 'model-viewer' }]"
+            @click="appMode = 'model-viewer'"
+          >
+            Model Viewer
+          </button>
+        </div>
+
+        <!-- Tile Viewer: File Selection -->
+        <section class="panel" v-if="appMode === 'tile-viewer'">
           <h2>File Selection</h2>
 
           <div class="form-group">
@@ -358,7 +511,32 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           </button>
         </section>
 
-        <section class="panel">
+        <!-- Model Viewer: File Selection -->
+        <section class="panel" v-if="appMode === 'model-viewer'">
+          <h2>Model Files</h2>
+
+          <div class="form-group">
+            <label>
+              Select .vmo files
+              <input type="file" accept=".vmo" multiple @change="onStandaloneVmoSelect" />
+            </label>
+            <span class="file-name">{{ standaloneVmoFiles.length }} files selected</span>
+          </div>
+
+          <div v-if="standaloneVmoFiles.length > 0" class="file-list">
+            <div v-for="(file, idx) in standaloneVmoFiles" :key="idx" class="file-item">
+              <span>{{ file.name }}</span>
+              <button class="remove-btn" @click="removeStandaloneFile(idx)">&times;</button>
+            </div>
+          </div>
+
+          <button class="load-btn" @click="loadStandaloneModels" :disabled="isLoading || standaloneVmoFiles.length === 0">
+            {{ isLoading ? 'Loading...' : 'Load & Render' }}
+          </button>
+        </section>
+
+        <!-- Display Options: full for tile-viewer -->
+        <section class="panel" v-if="appMode === 'tile-viewer'">
           <h2>Display Options</h2>
 
           <label class="checkbox-label" @mousedown.prevent>
@@ -402,10 +580,36 @@ const diagnostics = computed<DiagnosticInfo>(() => {
           </div>
         </section>
 
+        <!-- Display Options: simplified for model-viewer -->
+        <section class="panel" v-if="appMode === 'model-viewer'">
+          <h2>Display Options</h2>
+
+          <label class="checkbox-label" @mousedown.prevent>
+            <input type="checkbox" v-model="showBoundsOnly" />
+            Show bounds only (AABB)
+          </label>
+
+          <label class="checkbox-label" @mousedown.prevent>
+            <input type="checkbox" v-model="showWireframe" />
+            Wireframe mode
+          </label>
+
+          <button class="reset-btn" @click="sceneRef?.resetCamera()">
+            Reset Camera
+          </button>
+
+          <div class="coords" v-if="sceneRef?.cameraPosition">
+            <span>X: {{ sceneRef.cameraPosition.x.toFixed(1) }}</span>
+            <span>Y: {{ sceneRef.cameraPosition.y.toFixed(1) }}</span>
+            <span>Z: {{ sceneRef.cameraPosition.z.toFixed(1) }}</span>
+          </div>
+        </section>
+
+        <!-- Diagnostics -->
         <section class="panel">
           <h2>Diagnostics</h2>
 
-          <div class="stat">
+          <div class="stat" v-if="appMode === 'tile-viewer'">
             <span>Total Spawns:</span>
             <strong>{{ diagnostics.totalSpawns }}</strong>
           </div>
@@ -425,7 +629,7 @@ const diagnostics = computed<DiagnosticInfo>(() => {
             <strong>{{ diagnostics.totalTriangles.toLocaleString() }}</strong>
           </div>
 
-          <div v-if="diagnostics.missingModels.length > 0" class="missing-models">
+          <div v-if="appMode === 'tile-viewer' && diagnostics.missingModels.length > 0" class="missing-models">
             <h3>Missing Models ({{ diagnostics.missingModels.length }})</h3>
             <ul>
               <li v-for="name in diagnostics.missingModels.slice(0, 10)" :key="name">
@@ -741,5 +945,67 @@ body {
   background: #0f0f1a;
   padding: 2px 6px;
   border-radius: 3px;
+}
+
+.mode-tabs {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 8px;
+  background: #1a1a2e;
+  color: #888;
+  border: 1px solid #2a2a4a;
+  border-bottom: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab:first-child {
+  border-radius: 6px 0 0 0;
+}
+
+.tab:last-child {
+  border-radius: 0 6px 0 0;
+}
+
+.tab.active {
+  background: #2a2a4a;
+  color: #fff;
+}
+
+.file-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: #0f0f1a;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+}
+
+.file-item span {
+  color: #aaa;
+  word-break: break-all;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: #f44;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
 }
 </style>
